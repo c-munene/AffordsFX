@@ -2625,7 +2625,7 @@ html:not(.dark) .cal-pl-chip {
 const SUPABASE_URL = 'https://ayrtgdlkthgrhuvhkihe.supabase.co';      // ← replace this
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5cnRnZGxrdGhncmh1dmhraWhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwNTA4NzAsImV4cCI6MjEwODYyNjg3MH0.Ki1orbHl4o5hqlBJHLu6EjFX1bX4KwvPp3ooatbwZ18';               // ← replace this
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 /* ===== instruments.js ===== */
 /**
  * AffordsFX Instrument Specifications
@@ -3322,7 +3322,7 @@ async function register(name, email, password, confirmPassword) {
   }
 
   try {
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await supabaseClient.auth.signUp({
       email: email,
       password: password,
       options: {
@@ -3338,7 +3338,7 @@ async function register(name, email, password, confirmPassword) {
 
     // Create default trading account
     if (data.user) {
-      await supabase.from('accounts').insert({
+      await supabaseClient.from('accounts').insert({
         user_id: data.user.id,
         name: 'Main Account',
         broker: 'Demo Broker',
@@ -3361,7 +3361,7 @@ async function login(email, password) {
   email = email.toLowerCase().trim();
 
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabaseClient.auth.signInWithPassword({
       email: email,
       password: password
     });
@@ -3383,7 +3383,7 @@ async function login(email, password) {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   currentUser = null;
 
   document.getElementById('user-menu')?.classList.add('hidden');
@@ -7758,7 +7758,7 @@ function updateNotifBadge() {
 }
 
 async function checkAuth() {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await supabaseClient.auth.getUser();
 
   if (user) {
     currentUser = {
