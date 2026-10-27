@@ -3121,13 +3121,14 @@ function mapAccountToDB(acc, userId) {
   };
 }
   // Convert Supabase trade row → app format
+// Convert Supabase trade row → app format
 function mapTradeFromDB(row) {
   return {
     id: row.id,
     accountId: row.account_id,
     instrument: row.instrument,
     direction: row.direction,
-    orderType: row.order_type,
+    orderType: row.order_type || 'market',
     entryPrice: Number(row.entry_price),
     exitPrice: row.exit_price != null ? Number(row.exit_price) : null,
     stopLoss: row.stop_loss != null ? Number(row.stop_loss) : null,
@@ -3136,23 +3137,23 @@ function mapTradeFromDB(row) {
     commission: Number(row.commission) || 0,
     swap: Number(row.swap) || 0,
     spread: Number(row.spread) || 0,
-    status: row.status,
+    status: row.status || 'closed',
     session: row.session || '',
     timeframe: row.timeframe || '',
     strategy: row.strategy || '',
-    emotionalState: row.emotional_state || '',
-    rating: row.rating,
+    emotionalState: row.emotion || '',
+    rating: row.rating || null,
     entryReason: row.entry_reason || '',
     exitReason: row.exit_reason || '',
     lessons: row.lessons || '',
     mistakes: row.mistakes || '',
     notes: row.notes || '',
     tags: row.tags || [],
-    openTime: row.open_time,
-    closeTime: row.close_time,
+    openTime: row.opened_at,
+    closeTime: row.closed_at,
     pips: row.pips != null ? Number(row.pips) : null,
     grossPL: row.gross_pl != null ? Number(row.gross_pl) : null,
-    netPL: row.net_pl != null ? Number(row.net_pl) : null,
+    netPL: row.pnl != null ? Number(row.pnl) : null,
     riskAmount: row.risk_amount != null ? Number(row.risk_amount) : null,
     riskPercent: row.risk_percent != null ? Number(row.risk_percent) : null,
     rewardRisk: row.reward_risk != null ? Number(row.reward_risk) : null,
@@ -3161,14 +3162,13 @@ function mapTradeFromDB(row) {
   };
 }
 
-// Convert app trade → Supabase format
+// Convert app trade → Supabase format (matches your schema)
 function mapTradeToDB(trade, userId) {
   return {
     user_id: userId,
     account_id: trade.accountId,
     instrument: trade.instrument,
     direction: trade.direction,
-    order_type: trade.orderType,
     entry_price: trade.entryPrice,
     exit_price: trade.exitPrice,
     stop_loss: trade.stopLoss,
@@ -3177,26 +3177,15 @@ function mapTradeToDB(trade, userId) {
     commission: trade.commission || 0,
     swap: trade.swap || 0,
     spread: trade.spread || 0,
+    pnl: trade.netPL,
     status: trade.status,
-    session: trade.session || null,
-    timeframe: trade.timeframe || null,
     strategy: trade.strategy || null,
-    emotional_state: trade.emotionalState || null,
-    rating: trade.rating,
-    entry_reason: trade.entryReason || null,
-    exit_reason: trade.exitReason || null,
-    lessons: trade.lessons || null,
-    mistakes: trade.mistakes || null,
     notes: trade.notes || null,
+    emotion: trade.emotionalState || null,
+    session: trade.session || null,
     tags: trade.tags || [],
-    open_time: trade.openTime,
-    close_time: trade.closeTime,
-    pips: trade.pips,
-    gross_pl: trade.grossPL,
-    net_pl: trade.netPL,
-    risk_amount: trade.riskAmount,
-    risk_percent: trade.riskPercent,
-    reward_risk: trade.rewardRisk
+    opened_at: trade.openTime,
+    closed_at: trade.closeTime
   };
 }
 
