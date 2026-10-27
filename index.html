@@ -3120,6 +3120,85 @@ function mapAccountToDB(acc, userId) {
     status: acc.status || 'active'
   };
 }
+  // Convert Supabase trade row → app format
+function mapTradeFromDB(row) {
+  return {
+    id: row.id,
+    accountId: row.account_id,
+    instrument: row.instrument,
+    direction: row.direction,
+    orderType: row.order_type,
+    entryPrice: Number(row.entry_price),
+    exitPrice: row.exit_price != null ? Number(row.exit_price) : null,
+    stopLoss: row.stop_loss != null ? Number(row.stop_loss) : null,
+    takeProfit: row.take_profit != null ? Number(row.take_profit) : null,
+    lots: Number(row.lots),
+    commission: Number(row.commission) || 0,
+    swap: Number(row.swap) || 0,
+    spread: Number(row.spread) || 0,
+    status: row.status,
+    session: row.session || '',
+    timeframe: row.timeframe || '',
+    strategy: row.strategy || '',
+    emotionalState: row.emotional_state || '',
+    rating: row.rating,
+    entryReason: row.entry_reason || '',
+    exitReason: row.exit_reason || '',
+    lessons: row.lessons || '',
+    mistakes: row.mistakes || '',
+    notes: row.notes || '',
+    tags: row.tags || [],
+    openTime: row.open_time,
+    closeTime: row.close_time,
+    pips: row.pips != null ? Number(row.pips) : null,
+    grossPL: row.gross_pl != null ? Number(row.gross_pl) : null,
+    netPL: row.net_pl != null ? Number(row.net_pl) : null,
+    riskAmount: row.risk_amount != null ? Number(row.risk_amount) : null,
+    riskPercent: row.risk_percent != null ? Number(row.risk_percent) : null,
+    rewardRisk: row.reward_risk != null ? Number(row.reward_risk) : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+// Convert app trade → Supabase format
+function mapTradeToDB(trade, userId) {
+  return {
+    user_id: userId,
+    account_id: trade.accountId,
+    instrument: trade.instrument,
+    direction: trade.direction,
+    order_type: trade.orderType,
+    entry_price: trade.entryPrice,
+    exit_price: trade.exitPrice,
+    stop_loss: trade.stopLoss,
+    take_profit: trade.takeProfit,
+    lots: trade.lots,
+    commission: trade.commission || 0,
+    swap: trade.swap || 0,
+    spread: trade.spread || 0,
+    status: trade.status,
+    session: trade.session || null,
+    timeframe: trade.timeframe || null,
+    strategy: trade.strategy || null,
+    emotional_state: trade.emotionalState || null,
+    rating: trade.rating,
+    entry_reason: trade.entryReason || null,
+    exit_reason: trade.exitReason || null,
+    lessons: trade.lessons || null,
+    mistakes: trade.mistakes || null,
+    notes: trade.notes || null,
+    tags: trade.tags || [],
+    open_time: trade.openTime,
+    close_time: trade.closeTime,
+    pips: trade.pips,
+    gross_pl: trade.grossPL,
+    net_pl: trade.netPL,
+    risk_amount: trade.riskAmount,
+    risk_percent: trade.riskPercent,
+    reward_risk: trade.rewardRisk
+  };
+}
 
 function saveData(userId, key, data) {
   try {
@@ -3208,12 +3287,29 @@ async saveAccounts(userId, accounts) {
   return true;
 },
 
-  getTrades(userId) {
-    return loadData(userId, 'trades', []);
-  },
-  saveTrades(userId, trades) {
-    return saveData(userId, 'trades', trades);
-  },
+  async getTrades(userId) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('trades')
+      .select('*')
+      .eq('user_id', userId)
+      .order('open_time', { ascending: false });
+
+    if (error) {
+      console.error('Failed to load trades:', error);
+      return [];
+    }
+    return (data || []).map(mapTradeFromDB);
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+},
+
+async saveTrades(userId, trades) {
+  // Individual create/update will write to Supabase
+  return true;
+},
 
   async getBalanceEvents(userId) {
   try {
@@ -4362,13 +4458,17 @@ async function getUserData() {
   const user = getCurrentUser();
   if (!user) return null;
 
-  const accounts = await Store.getAccounts(user.id);
+  const [accounts, trades, balanceEvents] = await Promise.all([
+    Store.getAccounts(user.id),
+    Store.getTrades(user.id),
+    Store.getBalanceEvents(user.id)
+  ]);
 
   return {
     user,
-    accounts: accounts,
-    trades: Store.getTrades(user.id),
-    balanceEvents: Store.getBalanceEvents(user.id),
+    accounts,
+    trades,
+    balanceEvents,
     strategies: Store.getStrategies(user.id),
     goals: Store.getGoals(user.id),
     settings: Store.getSettings(user.id),
@@ -6114,10 +6214,12 @@ function renderScreenshotPreview() {
   `).join('');
 }
 
-function saveTrade(e) {
+async function saveTrade(e) {
   e.preventDefault();
   const user = getCurrentUser();
-  const data = getUserData();
+  if (!user) return;
+
+  const data = await getUserData();
   const accountId = document.getElementById('trade-account').value;
   const account = data.accounts.find(a => a.id === accountId);
   const form = document.getElementById('trade-form');
@@ -6148,8 +6250,12 @@ function saveTrade(e) {
     mistakes: document.getElementById('trade-mistakes').value,
     notes: document.getElementById('trade-notes').value,
     tags: document.getElementById('trade-tags').value.split(',').map(t => t.trim()).filter(Boolean),
-    openTime: document.getElementById('trade-open-time').value ? new Date(document.getElementById('trade-open-time').value).toISOString() : new Date().toISOString(),
-    closeTime: document.getElementById('trade-close-time').value ? new Date(document.getElementById('trade-close-time').value).toISOString() : null
+    openTime: document.getElementById('trade-open-time').value
+      ? new Date(document.getElementById('trade-open-time').value).toISOString()
+      : new Date().toISOString(),
+    closeTime: document.getElementById('trade-close-time').value
+      ? new Date(document.getElementById('trade-close-time').value).toISOString()
+      : null
   };
 
   const metrics = calculateTradeMetrics(tradeData, account);
@@ -6162,47 +6268,68 @@ function saveTrade(e) {
     rewardRisk: metrics.rewardRisk
   });
 
-  let trades = Store.getTrades(user.id);
-  if (editId) {
-    const idx = trades.findIndex(t => t.id === editId);
-    if (idx >= 0) {
-      tradeData.id = editId;
-      tradeData.createdAt = trades[idx].createdAt;
-      tradeData.updatedAt = new Date().toISOString();
-      trades[idx] = tradeData;
+  try {
+    let savedTrade;
+
+    if (editId) {
+      // UPDATE existing trade
+      const { data: updated, error } = await supabaseClient
+        .from('trades')
+        .update(mapTradeToDB(tradeData, user.id))
+        .eq('id', editId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      savedTrade = mapTradeFromDB(updated);
+    } else {
+      // INSERT new trade
+      const { data: inserted, error } = await supabaseClient
+        .from('trades')
+        .insert(mapTradeToDB(tradeData, user.id))
+        .select()
+        .single();
+
+      if (error) throw error;
+      savedTrade = mapTradeFromDB(inserted);
     }
-  } else {
-    tradeData.id = generateId();
-    tradeData.createdAt = new Date().toISOString();
-    tradeData.updatedAt = tradeData.createdAt;
-    trades.push(tradeData);
+
+    // Screenshots still local for now
+    if (pendingScreenshots.length) {
+      const shots = Store.getScreenshots(user.id);
+      pendingScreenshots.forEach(s => {
+        shots.push({ ...s, tradeId: savedTrade.id, uploadedAt: new Date().toISOString() });
+      });
+      Store.saveScreenshots(user.id, shots);
+    }
+
+    // Recalculate and update account balances
+    const allTrades = await Store.getTrades(user.id);
+    const events = await Store.getBalanceEvents(user.id);
+    const accounts = await Store.getAccounts(user.id);
+
+    for (const acc of accounts) {
+      const newBalance = recalculateAccountBalance(acc, allTrades, events);
+      await supabaseClient
+        .from('accounts')
+        .update({
+          current_balance: newBalance,
+          equity: newBalance
+        })
+        .eq('id', acc.id)
+        .eq('user_id', user.id);
+    }
+
+    showToast(editId ? 'Trade updated' : 'Trade saved successfully', 'success');
+    pendingScreenshots = [];
+    delete form.dataset.editId;
+    navigate('journal');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || 'Failed to save trade', 'error');
   }
-  Store.saveTrades(user.id, trades);
-
-  // Save screenshots
-  if (pendingScreenshots.length) {
-    const shots = Store.getScreenshots(user.id);
-    pendingScreenshots.forEach(s => {
-      shots.push({ ...s, tradeId: tradeData.id, uploadedAt: new Date().toISOString() });
-    });
-    Store.saveScreenshots(user.id, shots);
-  }
-
-  // Recalculate balances
-  const accounts = Store.getAccounts(user.id);
-  const events = Store.getBalanceEvents(user.id);
-  accounts.forEach(acc => {
-    acc.currentBalance = recalculateAccountBalance(acc, trades, events);
-    acc.equity = acc.currentBalance;
-  });
-  Store.saveAccounts(user.id, accounts);
-
-  showToast(editId ? 'Trade updated' : 'Trade saved successfully', 'success');
-  pendingScreenshots = [];
-  delete form.dataset.editId;
-  navigate('journal');
 }
-
 /* ========== ANALYTICS ========== */
 function renderAnalytics(data) {
   const trades = getFilteredTrades(data);
