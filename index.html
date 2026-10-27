@@ -3303,101 +3303,98 @@ function recordLoginAttempt(email, success) {
   localStorage.setItem(LOGIN_ATTEMPTS_KEY, JSON.stringify(data));
 }
 
-function register(name, email, password, confirmPassword) {
-  email = email.toLowerCase().trim();
-  if (!name || !email || !password) return { success: false, error: 'All fields are required.' };
-  if (password.length < 8) return { success: false, error: 'Password must be at least 8 characters.' };
-  if (password !== confirmPassword) return { success: false, error: 'Passwords do not match.' };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { success: false, error: 'Invalid email address.' };
+// ========== SUPABASE AUTH ==========
 
-  const users = Store.getUsers();
-  if (users.find(u => u.email === email)) {
-    return { success: false, error: 'An account with this email already exists.' };
+async function register(name, email, password, confirmPassword) {
+  email = email.toLowerCase().trim();
+
+  if (!name || !email || !password) {
+    return { success: false, error: 'All fields are required.' };
+  }
+  if (password.length < 8) {
+    return { success: false, error: 'Password must be at least 8 characters.' };
+  }
+  if (password !== confirmPassword) {
+    return { success: false, error: 'Passwords do not match.' };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { success: false, error: 'Invalid email address.' };
   }
 
-  const user = {
-    id: generateId(),
-    name: name.trim(),
-    email,
-    passwordHash: hashPassword(password),
-    createdAt: new Date().toISOString(),
-    emailVerified: true, // Demo: auto-verify. Production: send verification email.
-    twoFactorEnabled: false
-  };
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+      options: {
+        data: {
+          full_name: name.trim()
+        }
+      }
+    });
 
-  users.push(user);
-  Store.saveUsers(users);
+    if (error) {
+      return { success: false, error: error.message };
+    }
 
-  // Initialize default account
-  const defaultAccount = {
-    id: generateId(),
-    name: 'Main Account',
-    broker: 'Demo Broker',
-    type: 'demo',
-    currency: 'USD',
-    initialBalance: 10000,
-    currentBalance: 10000,
-    equity: 10000,
-    status: 'active',
-    createdAt: new Date().toISOString(),
-    goals: { monthlyTarget: 500, maxDailyLoss: 200 }
-  };
-  Store.saveAccounts(user.id, [defaultAccount]);
-  Store.saveTrades(user.id, []);
-  Store.saveBalanceEvents(user.id, []);
-  Store.saveStrategies(user.id, [
-    { id: generateId(), name: 'Breakout', description: 'Support/Resistance breakout' },
-    { id: generateId(), name: 'Trend Following', description: 'Moving average crossover' },
-    { id: generateId(), name: 'Scalping', description: 'Quick intraday scalps' }
-  ]);
-  Store.saveSettings(user.id, Store.getSettings(user.id));
+    // Create default trading account
+    if (data.user) {
+      await supabase.from('accounts').insert({
+        user_id: data.user.id,
+        name: 'Main Account',
+        broker: 'Demo Broker',
+        type: 'demo',
+        currency: 'USD',
+        initial_balance: 10000,
+        current_balance: 10000,
+        equity: 10000,
+        status: 'active'
+      });
+    }
 
-  return { success: true, user: { id: user.id, name: user.name, email: user.email } };
+    return { success: true, user: data.user };
+  } catch (err) {
+    return { success: false, error: err.message || 'Registration failed.' };
+  }
 }
 
-function login(email, password) {
+async function login(email, password) {
   email = email.toLowerCase().trim();
-  const attempts = getLoginAttempts(email);
-  if (attempts.lockedUntil > Date.now()) {
-    const mins = Math.ceil((attempts.lockedUntil - Date.now()) / 60000);
-    return { success: false, error: `Too many failed attempts. Try again in ${mins} minute(s).` };
-  }
 
-  const users = Store.getUsers();
-  const user = users.find(u => u.email === email);
-  if (!user || user.passwordHash !== hashPassword(password)) {
-    recordLoginAttempt(email, false);
-    return { success: false, error: 'Invalid email or password.' };
-  }
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password
+    });
 
-  recordLoginAttempt(email, true);
-  currentUser = { id: user.id, name: user.name, email: user.email, twoFactorEnabled: user.twoFactorEnabled };
-  Store.setSession({
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    loggedInAt: new Date().toISOString()
-  });
-  return { success: true, user: currentUser };
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    currentUser = {
+      id: data.user.id,
+      email: data.user.email,
+      name: data.user.user_metadata?.full_name || data.user.email
+    };
+
+    return { success: true, user: currentUser };
+  } catch (err) {
+    return { success: false, error: err.message || 'Login failed.' };
+  }
 }
 
-function logout() {
+async function logout() {
+  await supabase.auth.signOut();
   currentUser = null;
-  Store.clearSession();
-  if (typeof closeNotificationsPanel === 'function') closeNotificationsPanel();
+
   document.getElementById('user-menu')?.classList.add('hidden');
-  document.getElementById('app').classList.add('hidden');
-  document.getElementById('auth-container').classList.remove('hidden');
-  showAuthView('login');
+  document.getElementById('app')?.classList.add('hidden');
+  document.getElementById('auth-container')?.classList.remove('hidden');
+  if (typeof showAuthView === 'function') showAuthView('login');
 }
 
 function getCurrentUser() {
-  if (currentUser) return currentUser;
-  const session = Store.getSession();
-  if (session) {
-    currentUser = { id: session.userId, name: session.name, email: session.email };
-    return currentUser;
-  }
+  return currentUser;
+}
   return null;
 }
 
@@ -7552,35 +7549,47 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 600);
 
   // Auth form handlers
-  document.getElementById('login-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
-    const result = login(email, password);
-    if (result.success) {
-      showToast('Welcome back!', 'success');
-      initApp();
-    } else {
-      showToast(result.error, 'error');
-    }
-  });
+  document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
 
-  document.getElementById('register-form')?.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const result = register(
-      document.getElementById('reg-name').value,
+  const result = await login(email, password);
+
+  if (result.success) {
+    showToast('Welcome back!', 'success');
+    initApp();
+  } else {
+    showToast(result.error, 'error');
+  }
+});
+
+  document.getElementById('register-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const result = await register(
+    document.getElementById('reg-name').value,
+    document.getElementById('reg-email').value,
+    document.getElementById('reg-password').value,
+    document.getElementById('reg-password-confirm').value
+  );
+
+  if (result.success) {
+    showToast('Account created! Please check your email to confirm, then log in.', 'success');
+    // Optional: automatically try to log them in
+    const loginResult = await login(
       document.getElementById('reg-email').value,
-      document.getElementById('reg-password').value,
-      document.getElementById('reg-password-confirm').value
+      document.getElementById('reg-password').value
     );
-    if (result.success) {
-      showToast('Account created! Signing you in...', 'success');
-      login(document.getElementById('reg-email').value, document.getElementById('reg-password').value);
+    if (loginResult.success) {
       initApp();
     } else {
-      showToast(result.error, 'error');
+      showAuthView('login');
     }
-  });
+  } else {
+    showToast(result.error, 'error');
+  }
+});
 
   document.getElementById('forgot-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -7750,13 +7759,20 @@ function updateNotifBadge() {
   }
 }
 
-function checkAuth() {
-  const user = getCurrentUser();
+async function checkAuth() {
+  const { data: { user } } = await supabase.auth.getUser();
+
   if (user) {
+    currentUser = {
+      id: user.id,
+      email: user.email,
+      name: user.user_metadata?.full_name || user.email
+    };
     initApp();
   } else {
-    document.getElementById('auth-container').classList.remove('hidden');
-    showAuthView('login');
+    document.getElementById('auth-container')?.classList.remove('hidden');
+    document.getElementById('loading-screen')?.classList.add('hidden');
+    if (typeof showAuthView === 'function') showAuthView('login');
   }
 }
 
