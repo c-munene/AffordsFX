@@ -4334,12 +4334,15 @@ let journalFilters = {};
 let journalPage = 1;
 const JOURNAL_PAGE_SIZE = 20;
 
-function getUserData() {
+async function getUserData() {
   const user = getCurrentUser();
   if (!user) return null;
+
+  const accounts = await Store.getAccounts(user.id);
+
   return {
     user,
-    accounts: Store.getAccounts(user.id),
+    accounts: accounts,
     trades: Store.getTrades(user.id),
     balanceEvents: Store.getBalanceEvents(user.id),
     strategies: Store.getStrategies(user.id),
@@ -4350,7 +4353,6 @@ function getUserData() {
     notifications: Store.getNotifications(user.id)
   };
 }
-
 function getFilteredTrades(data) {
   let trades = data.trades;
   if (selectedAccountId && selectedAccountId !== 'all') {
@@ -7857,25 +7859,29 @@ function initApp() {
   navigate('dashboard');
 }
 
-function updateAccountSelector() {
+async function updateAccountSelector() {
   const user = getCurrentUser();
   if (!user) return;
-  const accounts = Store.getAccounts(user.id);
+
+  const accounts = await Store.getAccounts(user.id);
   const selector = document.getElementById('account-selector');
   if (!selector) return;
+
   const active = accounts.filter(a => a.status === 'active');
+
   // If selected id no longer exists, reset
   if (selectedAccountId !== 'all' && !accounts.some(a => a.id === selectedAccountId)) {
     selectedAccountId = 'all';
     localStorage.setItem('affordsfx_selected_account', 'all');
   }
+
   selector.innerHTML = '<option value="all">All Accounts</option>' +
     active.map(a =>
       `<option value="${a.id}" ${selectedAccountId === a.id ? 'selected' : ''}>${a.name.replace(/</g,'&lt;')}</option>`
     ).join('');
+
   selector.value = selectedAccountId;
 }
-
 </script>
 </body>
 </html>
