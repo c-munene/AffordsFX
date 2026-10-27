@@ -4377,41 +4377,87 @@ function navigate(page) {
   renderPage(page);
 }
 
-function renderPage(page) {
+async function renderPage(page) {
   const main = document.getElementById('main-content');
   if (!main) return;
-  // lightweight loading state without long artificial delay
-  if (!main.dataset.ready) {
-    main.innerHTML = '<div class="p-6 page-enter"><div class="skeleton h-8 w-48 mb-6"></div><div class="grid grid-cols-1 md:grid-cols-4 gap-4"><div class="skeleton h-28"></div><div class="skeleton h-28"></div><div class="skeleton h-28"></div><div class="skeleton h-28"></div></div></div>';
-  }
 
-  requestAnimationFrame(() => {
-    try {
-      const data = getUserData();
-      if (!data) return;
-      main.dataset.ready = '1';
+  // Show loading skeleton
+  main.innerHTML = `
+    <div class="p-6 page-enter">
+      <div class="skeleton h-8 w-48 mb-6"></div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="skeleton h-28"></div>
+        <div class="skeleton h-28"></div>
+        <div class="skeleton h-28"></div>
+        <div class="skeleton h-28"></div>
+      </div>
+    </div>`;
 
-      switch (page) {
-        case 'dashboard': main.innerHTML = renderDashboard(data); initDashboardCharts(data); break;
-        case 'accounts': main.innerHTML = renderAccounts(data); break;
-        case 'journal': main.innerHTML = renderJournal(data); break;
-        case 'add-trade': main.innerHTML = renderAddTrade(data); initTradeForm(data); break;
-        case 'analytics': main.innerHTML = renderAnalytics(data); initAnalyticsCharts(data); break;
-        case 'calendar': main.innerHTML = renderCalendar(data); break;
-        case 'spin': main.innerHTML = renderSpinWheel(data); setTimeout(() => drawSpinWheel(0), 50); break;
-        case 'strategies': main.innerHTML = renderStrategies(data); break;
-        case 'goals': main.innerHTML = renderGoals(data); break;
-        case 'gallery': main.innerHTML = renderGallery(data); break;
-        case 'reports': main.innerHTML = renderReports(data); break;
-        case 'settings': main.innerHTML = renderSettings(data); break;
-        case 'notifications': main.innerHTML = renderNotifications(data); break;
-        default: main.innerHTML = renderDashboard(data); initDashboardCharts(data);
-      }
-    } catch (err) {
-      console.error('Page render error:', err);
-      main.innerHTML = `<div class="p-6"><div class="card"><h2 class="font-semibold mb-2">Could not load this page</h2><p class="text-sm text-surface-400">${err.message || err}</p><button class="btn-primary text-sm mt-4" onclick="navigate('dashboard')">Back to Dashboard</button></div></div>`;
+  try {
+    const data = await getUserData();
+    if (!data) return;
+
+    main.dataset.ready = '1';
+
+    switch (page) {
+      case 'dashboard':
+        main.innerHTML = renderDashboard(data);
+        initDashboardCharts(data);
+        break;
+      case 'accounts':
+        main.innerHTML = renderAccounts(data);
+        break;
+      case 'journal':
+        main.innerHTML = renderJournal(data);
+        break;
+      case 'add-trade':
+        main.innerHTML = renderAddTrade(data);
+        initTradeForm(data);
+        break;
+      case 'analytics':
+        main.innerHTML = renderAnalytics(data);
+        initAnalyticsCharts(data);
+        break;
+      case 'calendar':
+        main.innerHTML = renderCalendar(data);
+        break;
+      case 'spin':
+        main.innerHTML = renderSpinWheel(data);
+        setTimeout(() => drawSpinWheel(0), 50);
+        break;
+      case 'strategies':
+        main.innerHTML = renderStrategies(data);
+        break;
+      case 'goals':
+        main.innerHTML = renderGoals(data);
+        break;
+      case 'gallery':
+        main.innerHTML = renderGallery(data);
+        break;
+      case 'reports':
+        main.innerHTML = renderReports(data);
+        break;
+      case 'settings':
+        main.innerHTML = renderSettings(data);
+        break;
+      case 'notifications':
+        main.innerHTML = renderNotifications(data);
+        break;
+      default:
+        main.innerHTML = renderDashboard(data);
+        initDashboardCharts(data);
     }
-  });
+  } catch (err) {
+    console.error('Page render error:', err);
+    main.innerHTML = `
+      <div class="p-6">
+        <div class="card">
+          <h2 class="font-semibold mb-2">Could not load this page</h2>
+          <p class="text-sm text-surface-400 mb-4">${err.message || 'Unknown error'}</p>
+          <button onclick="renderPage('dashboard')" class="btn-primary">Back to Dashboard</button>
+        </div>
+      </div>`;
+  }
 }
 
 /* ========== DASHBOARD ========== */
