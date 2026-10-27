@@ -4550,6 +4550,9 @@ async function renderPage(page) {
       case 'journal':
         main.innerHTML = renderJournal(data);
         break;
+      case 'notes':
+        main.innerHTML = renderNotes(data);
+        break;
       case 'add-trade':
         main.innerHTML = renderAddTrade(data);
         initTradeForm(data);
@@ -5556,7 +5559,51 @@ function selectAccount(id) {
   if (sel) sel.value = selectedAccountId;
 }
 
+function renderNotes(data) {
+  const entries = data.journalEntries || [];
+  return `
+  <div class="p-4 sm:p-6 max-w-3xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl font-bold">Notes</h1>
+      <button type="button" class="btn-primary text-sm" onclick="showAddNoteModal()">Add note</button>
+    </div>
+    ${entries.length === 0
+      ? '<p class="text-surface-500">No notes yet.</p>'
+      : entries.map(e => `
+        <div class="card mb-3">
+          <p class="font-semibold">${e.title || 'Untitled'}</p>
+          <p class="text-xs text-surface-500 mt-1">${e.mood || ''} ${e.createdAt ? new Date(e.createdAt).toLocaleString() : ''}</p>
+          <p class="text-sm mt-2 whitespace-pre-wrap">${e.content || ''}</p>
+        </div>
+      `).join('')}
+  </div>`;
+}
 
+function showAddNoteModal() {
+  showModal('New note', `
+    <div class="form-group"><label class="form-label">Title</label><input id="note-title" class="input-field" /></div>
+    <div class="form-group"><label class="form-label">Mood</label><input id="note-mood" class="input-field" /></div>
+    <div class="form-group"><label class="form-label">Content</label><textarea id="note-content" class="input-field" rows="5"></textarea></div>
+  `, `
+    <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+    <button type="button" class="btn-primary" onclick="submitNote()">Save</button>
+  `);
+}
+
+async function submitNote() {
+  const result = await createJournalEntry({
+    title: document.getElementById('note-title').value,
+    content: document.getElementById('note-content').value,
+    mood: document.getElementById('note-mood').value
+  });
+  if (!result.success) {
+    showToast(result.error || 'Failed', 'error');
+    return;
+  }
+  closeModal();
+  showToast('Note saved', 'success');
+  renderPage('notes');
+}
 function renderJournal(data) {
   let trades = getFilteredTrades(data);
   if (journalFilters.instrument) trades = trades.filter(t => t.instrument === journalFilters.instrument);
