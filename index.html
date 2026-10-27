@@ -3090,6 +3090,15 @@ const CURRENT_VERSION = 1;
 function getUserKey(userId, key) {
   return `${STORAGE_PREFIX}${userId}_${key}`;
 }
+  function mapJournalEntryFromDB(row) {
+  return {
+    id: row.id,
+    title: row.title || '',
+    content: row.content || '',
+    mood: row.mood || '',
+    createdAt: row.created_at
+  };
+}
   // Convert Supabase row → app format
 function mapAccountFromDB(row) {
   return {
