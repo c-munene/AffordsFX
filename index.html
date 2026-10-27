@@ -3215,12 +3215,36 @@ async saveAccounts(userId, accounts) {
     return saveData(userId, 'trades', trades);
   },
 
-  getBalanceEvents(userId) {
-    return loadData(userId, 'balanceEvents', []);
-  },
-  saveBalanceEvents(userId, events) {
-    return saveData(userId, 'balanceEvents', events);
-  },
+  async getBalanceEvents(userId) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('balance_events')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Failed to load balance events:', error);
+      return [];
+    }
+    return (data || []).map(row => ({
+      id: row.id,
+      accountId: row.account_id,
+      type: row.type,
+      amount: Number(row.amount),
+      note: row.note || '',
+      timestamp: row.created_at
+    }));
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+},
+
+async saveBalanceEvents(userId, events) {
+  // We no longer bulk-save. Individual functions will insert.
+  return true;
+},
 
   getStrategies(userId) {
     return loadData(userId, 'strategies', []);
@@ -5243,54 +5267,95 @@ async function createAccount() {
     showToast(err.message || 'Failed to create account', 'error');
   }
 }
-function showAdjustBalanceModal(id) {
+async function showAdjustBalanceModal(id) {
   const user = getCurrentUser();
-  const acc = Store.getAccounts(user.id).find(a => a.id === id);
+  if (!user) return;
+
+  const accounts = await Store.getAccounts(user.id);
+  const acc = accounts.find(a => a.id === id);
   if (!acc) return;
+
   showModal('Adjust balance', `
     <p class="text-sm text-surface-400 mb-3">Current: <span class="mono font-semibold text-surface-200">${formatCurrency(acc.currentBalance, acc.currency)}</span></p>
     <div class="form-group"><label class="form-label">Type</label>
-      <select id="adj-type" class="input-field select-dropdown"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option><option value="adjustment">Manual adjustment (+/−)</option></select>
+      <select id="adj-type" class="input-field select-dropdown">
+        <option value="deposit">Deposit</option>
+        <option value="withdrawal">Withdrawal</option>
+        <option value="adjustment">Manual adjustment (+/−)</option>
+      </select>
     </div>
-    <div class="form-group"><label class="form-label">Amount</label><input id="adj-amount" type="number" class="input-field" min="0.01" step="0.01" required placeholder="0.00" /></div>
-    <div class="form-group"><label class="form-label">Note</label><input id="adj-note" class="input-field" placeholder="Optional" maxlength="120" /></div>
-  `, `<button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button><button type="button" onclick="applyBalanceAdjust('${id}')" class="btn-primary">Apply</button>`);
-  setTimeout(() => document.getElementById('adj-amount')?.focus(), 50);
+    <div class="form-group"><label class="form-label">Amount</label>
+      <input id="adj-amount" type="number" class="input-field" min="0.01" step="0.01" required placeholder="0.00" />
+    </div>
+    <div class="form-group"><label class="form-label">Note</label>
+      <input id="adj-note" class="input-field" placeholder="Optional" maxlength="120" />
+    </div>
+  `, `<button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button>
+      <button type="button" onclick="applyBalanceAdjust('${id}')" class="btn-primary">Apply</button>`);
 }
 
-function applyBalanceAdjust(id) {
+async function applyBalanceAdjust(id) {
   const user = getCurrentUser();
-  const accounts = Store.getAccounts(user.id);
+  if (!user) return;
+
+  const accounts = await Store.getAccounts(user.id);
   const acc = accounts.find(a => a.id === id);
   if (!acc) return;
+
   const type = document.getElementById('adj-type')?.value;
   let amount = parseFloat(document.getElementById('adj-amount')?.value);
-  if (!amount || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
-  if (type === 'withdrawal') amount = -amount;
-  if (type === 'adjustment') {
-    // allow signed via note convention: user enters absolute; for true +/- use set balance
-    // keep as deposit-style positive adjustment; withdrawals use withdrawal type
+  if (!amount || amount <= 0) {
+    showToast('Enter a valid amount', 'error');
+    return;
   }
+
+  if (type === 'withdrawal') amount = -amount;
+
   if (type === 'withdrawal' && Math.abs(amount) > acc.currentBalance) {
     showToast('Withdrawal exceeds balance', 'error');
     return;
   }
-  acc.currentBalance = Math.round((acc.currentBalance + amount) * 100) / 100;
-  acc.equity = acc.currentBalance;
-  const events = Store.getBalanceEvents(user.id);
-  events.push({
-    id: generateId(),
-    accountId: id,
-    type,
-    amount,
-    note: document.getElementById('adj-note')?.value.trim() || '',
-    timestamp: new Date().toISOString()
-  });
-  Store.saveAccounts(user.id, accounts);
-  Store.saveBalanceEvents(user.id, events);
-  closeModal();
-  showToast('Balance updated', 'success');
-  renderPage('accounts');
+
+  const newBalance = Math.round((acc.currentBalance + amount) * 100) / 100;
+
+  try {
+    // 1. Update account balance in Supabase
+    const { error: accError } = await supabaseClient
+      .from('accounts')
+      .update({
+        current_balance: newBalance,
+        equity: newBalance
+      })
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (accError) {
+      showToast(accError.message || 'Failed to update balance', 'error');
+      return;
+    }
+
+    // 2. Insert balance event
+    const { error: eventError } = await supabaseClient
+      .from('balance_events')
+      .insert({
+        user_id: user.id,
+        account_id: id,
+        type: type,
+        amount: amount,
+        note: document.getElementById('adj-note')?.value.trim() || ''
+      });
+
+    if (eventError) {
+      console.error('Balance event error:', eventError);
+      // We still continue because the balance was already updated
+    }
+
+    closeModal();
+    showToast('Balance updated', 'success');
+    renderPage('accounts');
+  } catch (err) {
+    showToast(err.message || 'Failed to update balance', 'error');
+  }
 }
 
 function showSetBalanceModal(id) {
