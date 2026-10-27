@@ -3090,6 +3090,36 @@ const CURRENT_VERSION = 1;
 function getUserKey(userId, key) {
   return `${STORAGE_PREFIX}${userId}_${key}`;
 }
+  // Convert Supabase row → app format
+function mapAccountFromDB(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    broker: row.broker || '',
+    type: row.type || 'demo',
+    currency: row.currency || 'USD',
+    initialBalance: Number(row.initial_balance) || 0,
+    currentBalance: Number(row.current_balance) || 0,
+    equity: Number(row.equity) || Number(row.current_balance) || 0,
+    status: row.status || 'active',
+    createdAt: row.created_at || row.createdAt || new Date().toISOString()
+  };
+}
+
+// Convert app format → Supabase format
+function mapAccountToDB(acc, userId) {
+  return {
+    user_id: userId,
+    name: acc.name,
+    broker: acc.broker || '',
+    type: acc.type || 'demo',
+    currency: acc.currency || 'USD',
+    initial_balance: acc.initialBalance,
+    current_balance: acc.currentBalance,
+    equity: acc.equity ?? acc.currentBalance,
+    status: acc.status || 'active'
+  };
+}
 
 function saveData(userId, key, data) {
   try {
@@ -3151,12 +3181,32 @@ const Store = {
   },
 
   // Per-user data
-  getAccounts(userId) {
-    return loadData(userId, 'accounts', []);
-  },
-  saveAccounts(userId, accounts) {
-    return saveData(userId, 'accounts', accounts);
-  },
+  async getAccounts(userId) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Failed to load accounts:', error);
+      showToast('Could not load accounts', 'error');
+      return [];
+    }
+    return (data || []).map(mapAccountFromDB);
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+},
+
+async saveAccounts(userId, accounts) {
+  // We no longer bulk-save the whole list.
+  // Individual create / update functions will write to Supabase.
+  // This is kept only so old code doesn’t crash.
+  return true;
+},
 
   getTrades(userId) {
     return loadData(userId, 'trades', []);
@@ -5091,20 +5141,29 @@ function showCreateAccountModal() {
   setTimeout(() => document.getElementById('acc-name')?.focus(), 50);
 }
 
-function createAccount() {
+async function createAccount() {
   const user = getCurrentUser();
   if (!user) return;
+
   const name = document.getElementById('acc-name')?.value.trim();
-  if (!name) { showToast('Account name is required', 'error'); return; }
+  if (!name) {
+    showToast('Account name is required', 'error');
+    return;
+  }
+
   const balance = parseFloat(document.getElementById('acc-balance')?.value);
-  if (isNaN(balance) || balance < 0) { showToast('Enter a valid balance', 'error'); return; }
-  const accounts = Store.getAccounts(user.id);
+  if (isNaN(balance) || balance < 0) {
+    showToast('Enter a valid balance', 'error');
+    return;
+  }
+
+  const accounts = await Store.getAccounts(user.id);
   if (accounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
     showToast('An account with this name already exists', 'error');
     return;
   }
-  const acc = {
-    id: generateId(),
+
+  const newAccount = {
     name,
     broker: document.getElementById('acc-broker')?.value.trim() || '',
     type: document.getElementById('acc-type')?.value || 'demo',
@@ -5112,59 +5171,30 @@ function createAccount() {
     initialBalance: balance,
     currentBalance: balance,
     equity: balance,
-    status: 'active',
-    createdAt: new Date().toISOString()
+    status: 'active'
   };
-  accounts.push(acc);
-  if (!Store.saveAccounts(user.id, accounts)) return;
-  closeModal();
-  updateAccountSelector();
-  selectAccount(acc.id);
-  showToast('Account created', 'success');
-  renderPage('accounts');
-}
 
-function showEditAccountModal(id) {
-  const user = getCurrentUser();
-  const acc = Store.getAccounts(user.id).find(a => a.id === id);
-  if (!acc) return showToast('Account not found', 'error');
-  showModal('Edit account', `
-    <div class="form-group"><label class="form-label" for="edit-acc-name">Name</label><input id="edit-acc-name" class="input-field" value="${escapeHtml(acc.name)}" maxlength="64" /></div>
-    <div class="form-group"><label class="form-label" for="edit-acc-broker">Broker</label><input id="edit-acc-broker" class="input-field" value="${escapeHtml(acc.broker || '')}" /></div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">Type</label>
-        <select id="edit-acc-type" class="input-field select-dropdown">
-          ${['demo','live','evaluation','funded'].map(ty => `<option value="${ty}" ${acc.type===ty?'selected':''}>${ty}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label class="form-label">Status</label>
-        <select id="edit-acc-status" class="input-field select-dropdown">
-          <option value="active" ${acc.status==='active'?'selected':''}>Active</option>
-          <option value="archived" ${acc.status==='archived'?'selected':''}>Archived</option>
-        </select>
-      </div>
-    </div>
-  `, `<button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button><button type="button" onclick="saveAccountEdit('${id}')" class="btn-primary">Save</button>`);
-}
+  try {
+    const { data, error } = await supabaseClient
+      .from('accounts')
+      .insert(mapAccountToDB(newAccount, user.id))
+      .select()
+      .single();
 
-function saveAccountEdit(id) {
-  const user = getCurrentUser();
-  const accounts = Store.getAccounts(user.id);
-  const acc = accounts.find(a => a.id === id);
-  if (!acc) return;
-  const name = document.getElementById('edit-acc-name')?.value.trim();
-  if (!name) { showToast('Name required', 'error'); return; }
-  acc.name = name;
-  acc.broker = document.getElementById('edit-acc-broker')?.value.trim() || '';
-  acc.type = document.getElementById('edit-acc-type')?.value || acc.type;
-  acc.status = document.getElementById('edit-acc-status')?.value || acc.status;
-  Store.saveAccounts(user.id, accounts);
-  updateAccountSelector();
-  closeModal();
-  showToast('Account updated', 'success');
-  renderPage('accounts');
-}
+    if (error) {
+      showToast(error.message || 'Failed to create account', 'error');
+      return;
+    }
 
+    closeModal();
+    updateAccountSelector();
+    selectAccount(data.id);
+    showToast('Account created', 'success');
+    renderPage('accounts');
+  } catch (err) {
+    showToast(err.message || 'Failed to create account', 'error');
+  }
+}
 function showAdjustBalanceModal(id) {
   const user = getCurrentUser();
   const acc = Store.getAccounts(user.id).find(a => a.id === id);
@@ -5226,30 +5256,56 @@ function showSetBalanceModal(id) {
   `, `<button type="button" onclick="closeModal()" class="btn-secondary">Cancel</button><button type="button" onclick="applySetBalance('${id}')" class="btn-primary">Set balance</button>`);
 }
 
-function applySetBalance(id) {
+async function applySetBalance(id) {
   const user = getCurrentUser();
-  const accounts = Store.getAccounts(user.id);
+  if (!user) return;
+
+  const accounts = await Store.getAccounts(user.id);
   const acc = accounts.find(a => a.id === id);
   if (!acc) return;
+
   const next = parseFloat(document.getElementById('set-bal-amount')?.value);
-  if (isNaN(next) || next < 0) { showToast('Enter a valid balance', 'error'); return; }
+  if (isNaN(next) || next < 0) {
+    showToast('Enter a valid balance', 'error');
+    return;
+  }
+
   const delta = Math.round((next - acc.currentBalance) * 100) / 100;
-  acc.currentBalance = next;
-  acc.equity = next;
-  const events = Store.getBalanceEvents(user.id);
-  events.push({
-    id: generateId(),
-    accountId: id,
-    type: 'adjustment',
-    amount: delta,
-    note: document.getElementById('set-bal-note')?.value.trim() || 'Set balance',
-    timestamp: new Date().toISOString()
-  });
-  Store.saveAccounts(user.id, accounts);
-  Store.saveBalanceEvents(user.id, events);
-  closeModal();
-  showToast('Balance set', 'success');
-  renderPage('accounts');
+
+  try {
+    // 1. Update the account balance in Supabase
+    const { error } = await supabaseClient
+      .from('accounts')
+      .update({
+        current_balance: next,
+        equity: next
+      })
+      .eq('id', id)
+      .eq('user_id', user.id);
+
+    if (error) {
+      showToast(error.message || 'Failed to update balance', 'error');
+      return;
+    }
+
+    // 2. Still save the balance event locally for now (we’ll move this later)
+    const events = Store.getBalanceEvents(user.id);
+    events.push({
+      id: generateId(),
+      accountId: id,
+      type: 'adjustment',
+      amount: delta,
+      note: document.getElementById('set-bal-note')?.value.trim() || 'Set balance',
+      timestamp: new Date().toISOString()
+    });
+    Store.saveBalanceEvents(user.id, events);
+
+    closeModal();
+    showToast('Balance set', 'success');
+    renderPage('accounts');
+  } catch (err) {
+    showToast(err.message || 'Failed to update balance', 'error');
+  }
 }
 
 function deleteAccount(id) {
