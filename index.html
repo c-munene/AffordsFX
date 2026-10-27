@@ -6229,7 +6229,40 @@ function renderScreenshotPreview() {
     </div>
   `).join('');
 }
+async function createJournalEntry({ title, content, mood }) {
+  const user = getCurrentUser();
+  if (!user) {
+    return { success: false, error: 'Not logged in' };
+  }
 
+  const { data, error } = await supabaseClient
+    .from('journal_entries')
+    .insert({
+      user_id: user.id,
+      title: (title || '').trim() || null,
+      content: (content || '').trim() || null,
+      mood: (mood || '').trim() || null
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error(error);
+    return { success: false, error: error.message };
+  }
+
+  return {
+    success: true,
+    entry: {
+      id: data.id,
+      title: data.title || '',
+      content: data.content || '',
+      mood: data.mood || '',
+      createdAt: data.created_at
+    }
+  };
+}
+  
 async function saveTrade(e) {
   e.preventDefault();
   const user = getCurrentUser();
