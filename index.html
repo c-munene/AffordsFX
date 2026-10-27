@@ -3345,13 +3345,30 @@ async saveBalanceEvents(userId, events) {
     return saveData(userId, 'goals', goals);
   },
 
-  getJournalEntries(userId) {
-    return loadData(userId, 'journalEntries', []);
-  },
-  saveJournalEntries(userId, entries) {
-    return saveData(userId, 'journalEntries', entries);
-  },
+  async getJournalEntries(userId) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('journal_entries')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
+    if (error) {
+      console.error('Failed to load journal entries:', error);
+      showToast('Could not load journal entries', 'error');
+      return [];
+    }
+    return (data || []).map(mapJournalEntryFromDB);
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+},
+
+async saveJournalEntries(userId, entries) {
+  // No bulk save — use create/update/delete helpers
+  return true;
+},
   getSettings(userId) {
     return loadData(userId, 'settings', {
       defaultRiskPercent: 1,
@@ -4447,10 +4464,11 @@ async function getUserData() {
   const user = getCurrentUser();
   if (!user) return null;
 
-  const [accounts, trades, balanceEvents] = await Promise.all([
+  const [accounts, trades, balanceEvents, journalEntries] = await Promise.all([
     Store.getAccounts(user.id),
     Store.getTrades(user.id),
-    Store.getBalanceEvents(user.id)
+    Store.getBalanceEvents(user.id),
+    Store.getJournalEntries(user.id)
   ]);
 
   return {
@@ -4462,7 +4480,7 @@ async function getUserData() {
     goals: Store.getGoals(user.id),
     settings: Store.getSettings(user.id),
     screenshots: Store.getScreenshots(user.id),
-    journalEntries: Store.getJournalEntries(user.id),
+    journalEntries,
     notifications: Store.getNotifications(user.id)
   };
 }
@@ -4988,20 +5006,20 @@ function renderDashboardCalendar(data) {
   `;
 }
 
-function dashChangeMonth(delta) {
+async function dashChangeMonth(delta) {
   calendarMonth += delta;
   if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
   if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
   calendarSelectedDay = null;
-  const data = getUserData();
+  const data = await getUserData();
   if (!data) return;
   const el = document.querySelector('.dash-cal-wrap');
   if (el) el.innerHTML = renderDashboardCalendar(data);
 }
 
-function dashSelectDay(dateStr) {
+async function dashSelectDay(dateStr) {
   calendarSelectedDay = dateStr;
-  const data = getUserData();
+  const data = await getUserData();
   if (!data) return;
 
   // Re-render so Day/Week strip stays in sync with selection
